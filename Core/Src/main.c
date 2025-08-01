@@ -161,10 +161,10 @@ int main(void)
 	  }
 	  HAL_ADC_Stop(&hadc2);
 
-	  TxData[0] = (adc_value >> 8) & 0xFF;
-	  TxData[1] = adc_value & 0xFF;
-	  TxData[2] = (adc_value_2 >> 8) & 0xFF;
-	  TxData[3] = adc_value_2 & 0xFF;
+	  TxData[0] = adc_value & 0xFF;
+	  TxData[1] = (adc_value >> 8) & 0xFF ;
+	  TxData[2] = adc_value_2 & 0xFF;
+	  TxData[3] = (adc_value_2 >> 8) & 0xFF;
 
 
 	  HAL_CAN_AddTxMessage(&hcan1, &Txheader, TxData, &TxMailbox);
