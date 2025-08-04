@@ -1208,31 +1208,31 @@ int main(void)
  8000e36:	481b      	ldr	r0, [pc, #108]	@ (8000ea4 <main+0x174>)
  8000e38:	f000 fd46 	bl	80018c8 <HAL_ADC_Stop>
 
-	  TxData[0] = (adc_value >> 8) & 0xFF;
+	  TxData[0] = adc_value & 0xFF;
  8000e3c:	4b17      	ldr	r3, [pc, #92]	@ (8000e9c <main+0x16c>)
  8000e3e:	881b      	ldrh	r3, [r3, #0]
- 8000e40:	0a1b      	lsrs	r3, r3, #8
- 8000e42:	b29b      	uxth	r3, r3
- 8000e44:	b2da      	uxtb	r2, r3
- 8000e46:	4b1a      	ldr	r3, [pc, #104]	@ (8000eb0 <main+0x180>)
- 8000e48:	701a      	strb	r2, [r3, #0]
-	  TxData[1] = adc_value & 0xFF;
- 8000e4a:	4b14      	ldr	r3, [pc, #80]	@ (8000e9c <main+0x16c>)
- 8000e4c:	881b      	ldrh	r3, [r3, #0]
+ 8000e40:	b2da      	uxtb	r2, r3
+ 8000e42:	4b1b      	ldr	r3, [pc, #108]	@ (8000eb0 <main+0x180>)
+ 8000e44:	701a      	strb	r2, [r3, #0]
+	  TxData[1] = (adc_value >> 8) & 0xFF ;
+ 8000e46:	4b15      	ldr	r3, [pc, #84]	@ (8000e9c <main+0x16c>)
+ 8000e48:	881b      	ldrh	r3, [r3, #0]
+ 8000e4a:	0a1b      	lsrs	r3, r3, #8
+ 8000e4c:	b29b      	uxth	r3, r3
  8000e4e:	b2da      	uxtb	r2, r3
  8000e50:	4b17      	ldr	r3, [pc, #92]	@ (8000eb0 <main+0x180>)
  8000e52:	705a      	strb	r2, [r3, #1]
-	  TxData[2] = (adc_value_2 >> 8) & 0xFF;
+	  TxData[2] = adc_value_2 & 0xFF;
  8000e54:	4b14      	ldr	r3, [pc, #80]	@ (8000ea8 <main+0x178>)
  8000e56:	881b      	ldrh	r3, [r3, #0]
- 8000e58:	0a1b      	lsrs	r3, r3, #8
- 8000e5a:	b29b      	uxth	r3, r3
- 8000e5c:	b2da      	uxtb	r2, r3
- 8000e5e:	4b14      	ldr	r3, [pc, #80]	@ (8000eb0 <main+0x180>)
- 8000e60:	709a      	strb	r2, [r3, #2]
-	  TxData[3] = adc_value_2 & 0xFF;
- 8000e62:	4b11      	ldr	r3, [pc, #68]	@ (8000ea8 <main+0x178>)
- 8000e64:	881b      	ldrh	r3, [r3, #0]
+ 8000e58:	b2da      	uxtb	r2, r3
+ 8000e5a:	4b15      	ldr	r3, [pc, #84]	@ (8000eb0 <main+0x180>)
+ 8000e5c:	709a      	strb	r2, [r3, #2]
+	  TxData[3] = (adc_value_2 >> 8) & 0xFF;
+ 8000e5e:	4b12      	ldr	r3, [pc, #72]	@ (8000ea8 <main+0x178>)
+ 8000e60:	881b      	ldrh	r3, [r3, #0]
+ 8000e62:	0a1b      	lsrs	r3, r3, #8
+ 8000e64:	b29b      	uxth	r3, r3
  8000e66:	b2da      	uxtb	r2, r3
  8000e68:	4b11      	ldr	r3, [pc, #68]	@ (8000eb0 <main+0x180>)
  8000e6a:	70da      	strb	r2, [r3, #3]
