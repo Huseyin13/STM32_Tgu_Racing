@@ -18,6 +18,7 @@
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
+#include "math.h" //fabs fonksiyonu için
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
@@ -40,26 +41,30 @@
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
-ADC_HandleTypeDef hadc1;
-ADC_HandleTypeDef hadc2;
+ADC_HandleTypeDef hadc1; //ADC1 yapılandırması
+ADC_HandleTypeDef hadc2; //ADC2 yapılandırması
 
-CAN_HandleTypeDef hcan1;
+CAN_HandleTypeDef hcan1; //CAN1 yapılandırması
 
-UART_HandleTypeDef huart2;
+UART_HandleTypeDef huart2; //USART2 yapılandırması
 
 /* USER CODE BEGIN PV */
+//CAN mesajı için değişkenler
 CAN_TxHeaderTypeDef Txheader;
 CAN_RxHeaderTypeDef Rxheader;
 
 uint8_t TxData[8];
 uint8_t RxData[8];
+uint32_t TxMailbox;
 
+// ADC okuma için değişkenler
 uint16_t adc_value, adc_value_2 = 0;
 float adc_voltage, adc_voltage_2 = 0;
+float v_real1 = 0.0f, v_real2 = 0.0f;
+float percent1 = 0.0f, percent2 = 0.0f;
 
 
 
-uint32_t TxMailbox;
 
 
 void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef *hcan)
@@ -68,7 +73,7 @@ void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef *hcan)
     {
         HAL_CAN_GetRxMessage(hcan, CAN_RX_FIFO0, &Rxheader, RxData);
 
-        // Check if this is our expected message (ID 0x111)
+
 
     }
 }
@@ -88,7 +93,56 @@ static void MX_ADC2_Init(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+// Voltaj bölücü katsayısı yaklaşık 1.59
+// ADC_Volt * SCALE = Gerçek_Volt
+#define SCALE   1.59
 
+// Pedal aralıkları (volt cinsinden)
+#define APPS1_MIN   0.5
+#define APPS1_MAX   4.5
+#define APPS2_MIN   0.5
+#define APPS2_MAX   4.5
+
+// Implausibility / fault parametreleri
+#define APPS_IMPLAUS_THRESHOLD  10.0f // Yüzde cinsinden
+#define APPS_IMPLAUS_PERSIST_MS 100 // 100 ms şartı (kural)
+#define SHORTCIRCUIT_VOLT_TOLERANCE 0.02f // Voltaj toleransı (volt cinsinden)
+#define SHORTCIRCUIT_PERSIST_MS 100 // 100 ms şartı (kural)
+
+// Status bits (TxData[6])
+// bit0 = 1 => implausibility latched (100ms geçti)
+// bit1 = 1 => sensor1 fault (out of range)
+// bit2 = 1 => sensor2 fault (out of range)
+// bit3 = 1 => short-circuit suspected
+// diğer bitler rezerv
+
+// Status bits ve fault latch için değişkenler
+uint8_t status_bits = 0;// CAN mesajında gönderilecek status byte
+
+//fault latch
+uint8_t implaus_latched = 0; // APPS implausibility fault latch
+uint32_t implaus_start_time = 0;
+uint32_t shortcircuit_start_time = 0;
+
+uint8_t shortc_suspected = 0;
+
+// Yüzde hesaplama fonksiyonu
+float apps_to_percent(float v_real, float v_min, float v_max){
+	float percent = ((v_real - v_min) / (v_max - v_min)) * 100.0f;
+	    if (percent < 0) percent = 0;
+	    if (percent > 100) percent = 100;
+	    return percent;
+}
+
+//sensör voltajının beklenen aralıkta olup olmadığını kontrol et
+uint8_t is_voltage_in_range(float v, float v_min, float v_max, float tolerance){
+	if(v < (v_min - tolerance) || v > (v_max + tolerance)){
+		return 0; // out of range
+	}
+	else{
+		return 1; // in range
+	}
+}
 /* USER CODE END 0 */
 
 /**
@@ -128,6 +182,7 @@ int main(void)
   HAL_CAN_Start(&hcan1);
   HAL_CAN_ActivateNotification(&hcan1, CAN_IT_RX_FIFO0_MSG_PENDING);
 
+  //CAN mesajı header ayarları
   Txheader.DLC = 4;
   Txheader.StdId =0x111;
   Txheader.IDE = CAN_ID_STD;
@@ -148,7 +203,9 @@ int main(void)
 
 	  if(HAL_ADC_PollForConversion(&hadc1, 1000) == HAL_OK){
 	  adc_value = HAL_ADC_GetValue(&hadc1);
-	  adc_voltage = adc_value*3.3/4095;
+	  adc_voltage = adc_value*3.3/4095; //ADC->volt dönüşümü
+	  v_real1 = adc_voltage * SCALE; //gerçek voltaj
+	  percent1 = apps_to_percent(v_real1, APPS1_MIN, APPS1_MAX);
 	  }
 	  HAL_ADC_Stop(&hadc1);
 
@@ -158,18 +215,90 @@ int main(void)
 	  if(HAL_ADC_PollForConversion(&hadc2, 1000) == HAL_OK){
 		  adc_value_2 = HAL_ADC_GetValue(&hadc2);
 		  adc_voltage_2 = adc_value_2*3.3/4095;
+		  v_real2 = adc_voltage_2 * SCALE;
+		  percent2 = apps_to_percent(v_real2, APPS2_MIN, APPS2_MAX);
 	  }
 	  HAL_ADC_Stop(&hadc2);
 
-	  TxData[0] = adc_value & 0xFF;
-	  TxData[1] = (adc_value >> 8) & 0xFF ;
-	  TxData[2] = adc_value_2 & 0xFF;
-	  TxData[3] = (adc_value_2 >> 8) & 0xFF;
+	  status_bits = 0; // her döngüde status bitlerini sıfırla
+
+	  //sensör voltaj aralığında mı kontrol et
+	  float tolerance = 0.1f; // 100mV tolerans
+	  if(!is_voltage_in_range(v_real1, APPS1_MIN, APPS1_MAX, tolerance)){
+		  status_bits |= 0x02; // sensor1 fault
+	  }
+	  if(!is_voltage_in_range(v_real2, APPS2_MIN, APPS2_MAX, tolerance)){
+		  status_bits |= 0x04; // sensor2 fault
+	  }
+
+	  // APPS implausibility
+	  float diff = fabsf(percent1 - percent2);
+
+	  uint32_t current_time = HAL_GetTick();
+	  if(diff > APPS_IMPLAUS_THRESHOLD || (status_bits & 0x06) != 0){
+		  // implausibility başladı
+		  if(implaus_start_time == 0){
+			  implaus_start_time = current_time;
+		  }
+		  //100 ms geçtiyse latchle
+		  if(implaus_latched == 0 && (current_time - implaus_start_time) >= APPS_IMPLAUS_PERSIST_MS){
+			  implaus_latched = 1; // latch the fault
+			  status_bits |= 0x01; // implausibility latched
+			  //motor controller'a CAN ile bildirim gönder (aşağıda Tx gönderiliyor)
+
+		  }
+	} else{
+		  // implausibility yok
+		  implaus_start_time = 0;
+	  }
+	  //Short-circuit benzeri durum tespiti
+	  if(fabsf(v_real1 - v_real2) < SHORTCIRCUIT_VOLT_TOLERANCE){
+		  // short-circuit benzeri durum başladı
+		  if(shortcircuit_start_time == 0){
+			  shortcircuit_start_time = current_time;
+		  }
+		  //100 ms geçtiyse şüpheli olarak işaretle
+		  if(shortc_suspected == 0 && (current_time - shortcircuit_start_time) >= SHORTCIRCUIT_PERSIST_MS){
+			  shortc_suspected = 1;
+			  status_bits |= 0x08; // short-circuit suspected
+			  //motor controller'a CAN ile bildirim gönder (aşağıda Tx gönderiliyor)
+
+		  }
+	  } else{
+		  // short-circuit benzeri durum yok
+		  shortcircuit_start_time = 0;
+		  shortc_suspected = 0;
+	  }
+//	  Afully released check: eğer manuel moddaysa (kodda manual kontrol yok) fren/idle gereksinimi
+//      Kural: tamamen bırakılmış pedal (0%) -> EV: wheel torque <= 0Nm.
+//      Burada sadece yardımcı status gönderiyoruz; gerçek torque kesmeyi motor controller yapmalı.
+	  if(percent1 < 1.0f && percent2 < 1.0f){
+		  // tamamen bırakılmış
+		  // ek bir status biti ayarlanabilir (örneğin bit4)
+		  status_bits |= 0x10; // fully released
+	  }
+
+	  /*     CAN mesajı gönderimi
+	         TxData[0] = percent1 (0-100)
+	         TxData[1] = percent2
+	         TxData[2..5] = raw ADCs (little endian)
+	         TxData[6] = status byte
+	         TxData[7] = reserved/checksum (opsiyonel)
+	      */
+
+	  TxData[0] = (uint8_t)(percent1 + 0.5f); // yuvarlama için 0.5 ekle
+	  TxData[1] = (uint8_t)(percent2 + 0.5f);
+	  TxData[2] = (uint8_t)(adc_value & 0xFF);
+	  TxData[3] = (uint8_t)((adc_value >> 8) & 0xFF);
+	  TxData[4] = (uint8_t)(adc_value_2 & 0xFF);
+	  TxData[5] = (uint8_t)((adc_value_2 >> 8) & 0xFF);
+	  TxData[6] = status_bits;
+	  TxData[7] = 0; // future use / checksum
 
 
 	  HAL_CAN_AddTxMessage(&hcan1, &Txheader, TxData, &TxMailbox);
 
-	  HAL_Delay(100);
+	  HAL_Delay(10);
 
 
 
